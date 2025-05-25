@@ -16,6 +16,7 @@ function activate(context) {
 	statusBarItem.command = 'code-reviewer.review';
 	statusBarItem.show();
 	context.subscriptions.push(statusBarItem);
+	const commentsChannel = vscode.window.createOutputChannel('Comentarios');
 
 	const disposable = vscode.commands.registerCommand('code-reviewer.review', async () => {
 		const editor = vscode.window.activeTextEditor;
@@ -28,7 +29,7 @@ function activate(context) {
 		const diagnostics = await getDiagnostics(lines);
 		console.log('Diagnostics:', diagnostics);
 
-		await createComments(editor, diagnostics);
+		await createComments(editor, diagnostics, commentsChannel);
 
 		if (diagnostics.length === 0) {
 			vscode.window.showInformationMessage('Tu código está perfecto!');
