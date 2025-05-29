@@ -1,8 +1,12 @@
 const vscode = require('vscode');
 
-const createComments = (editor, diagnostics, commentsChannel) => {
-    const diagnosticCollection = vscode.languages.createDiagnosticCollection('codeReviewer');
-    const vscodeDiagnostics = diagnostics.map(diagnostic => {
+let decorationType;
+
+const createComments = (editor, diagnostics, diagnosticCollection) => {
+    diagnosticCollection.clear();
+    const unresolvedDiagnostics = diagnostics.filter(diagnostic => !diagnostic.isResolved);
+
+    const vscodeDiagnostics = unresolvedDiagnostics.map(diagnostic => {
         const range = new vscode.Range(
             diagnostic.startLine,
             diagnostic.startCharacter || 0,
@@ -20,23 +24,19 @@ const createComments = (editor, diagnostics, commentsChannel) => {
     });
     diagnosticCollection.set(editor.document.uri, vscodeDiagnostics);
 
-    commentsChannel.clear();
-    diagnostics.forEach(diagnostic => {
-        const filePath = editor.document.uri.fsPath.replace(/\\/g, '/');
-        const rangeInfo = `Líneas ${diagnostic.startLine + 1}-${(diagnostic.endLine || diagnostic.startLine) + 1}`;
-        commentsChannel.appendLine(`${filePath}:${diagnostic.startLine + 1}:1: ${diagnostic.message} (${rangeInfo})`);
-    });
-    commentsChannel.show(true);
+    if (decorationType) {
+        editor.setDecorations(decorationType, []);
+    }
 
-    const decorationType = vscode.window.createTextEditorDecorationType({
+    decorationType = vscode.window.createTextEditorDecorationType({
         backgroundColor: 'rgba(255, 200, 0, 0.3)',
         border: '1px solid rgba(255, 165, 0, 0.8)',
         isWholeLine: true,
         gutterIconPath: vscode.Uri.file(require('path').join(__dirname, '/resources/warning-icon.svg')),
-        gutterIconSize: 'contain'
+        gutterIconSize: 'contain',
     });
 
-    const decorationRanges = diagnostics.map(diagnostic => {
+    const decorationRanges = unresolvedDiagnostics.map(diagnostic => {
         const range = new vscode.Range(
             diagnostic.startLine,
             diagnostic.startCharacter || 0,
@@ -44,13 +44,8 @@ const createComments = (editor, diagnostics, commentsChannel) => {
             diagnostic.endCharacter || Number.MAX_SAFE_INTEGER
         );
 
-        const hoverMessage = diagnostic.endLine
-            ? new vscode.MarkdownString(`${diagnostic.message}\n\n**Sugerencia:** Revisa estas líneas cuidadosamente.`)
-            : new vscode.MarkdownString(`${diagnostic.message}\n\n**Sugerencia:** Revisa esta línea cuidadosamente.`);
-
         return {
-            range,
-            hoverMessage
+            range
         };
     });
 

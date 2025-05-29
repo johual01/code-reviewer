@@ -1,8 +1,9 @@
 const vscode = require('vscode');
-const diagnosticProvider = require('./diagnostic');
+const Diagnostics = require('./diagnostic');
 const commentProvider = require('./comment');
-const { getDiagnostics } = diagnosticProvider
-const { createComments } = commentProvider
+const { createComments } = commentProvider;
+
+const diagnosticsInstance = new Diagnostics();
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -16,7 +17,8 @@ function activate(context) {
 	statusBarItem.command = 'code-reviewer.review';
 	statusBarItem.show();
 	context.subscriptions.push(statusBarItem);
-	const commentsChannel = vscode.window.createOutputChannel('Comentarios');
+	const diagnosticCollection = vscode.languages.createDiagnosticCollection('codeReviewer');
+
 
 	const disposable = vscode.commands.registerCommand('code-reviewer.review', async () => {
 		const editor = vscode.window.activeTextEditor;
@@ -26,10 +28,10 @@ function activate(context) {
 		}
 		const content = editor.document.getText();
 		const lines = content.split(/\r?\n/);
-		const diagnostics = await getDiagnostics(lines);
+		const diagnostics = diagnosticsInstance.generateDiagnostics(lines);
 		console.log('Diagnostics:', diagnostics);
 
-		await createComments(editor, diagnostics, commentsChannel);
+		await createComments(editor, diagnosticsInstance.getCurrentDiagnostics(), diagnosticCollection);
 
 		if (diagnostics.length === 0) {
 			vscode.window.showInformationMessage('Tu código está perfecto!');
@@ -38,6 +40,19 @@ function activate(context) {
 		}
 	});
 	context.subscriptions.push(disposable);
+
+	const resolveDiagnostic = vscode.commands.registerCommand('code-reviewer.resolveDiagnostic', async (id) => {
+		const diagnostic = diagnosticsInstance.findById(id);
+		if (diagnostic) {
+			diagnosticsInstance.resolveDiagnostic(id);
+			vscode.window.showInformationMessage(`Se resolvió el error: ${diagnostic.message}`);
+			const editor = vscode.window.activeTextEditor;
+			await createComments(editor, diagnosticsInstance.getCurrentDiagnostics(), diagnosticCollection);
+		} else {
+			vscode.window.showErrorMessage('Diagnostic not found.');
+		}
+	});
+	context.subscriptions.push(resolveDiagnostic);
 
 	const saveListener = vscode.workspace.onDidSaveTextDocument(async (document) => {
 		const now = Date.now();
