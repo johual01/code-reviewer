@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { sendFile } = require('./service')
 
 class Diagnostics {
     constructor() {
@@ -9,23 +10,16 @@ class Diagnostics {
         return this.currentDiagnostics.filter(diagnostic => !diagnostic.isResolved);
     }
 
-    generateDiagnostics(lines) {
-        const diagnostics = [];
-        lines.forEach((line, idx) => {
-            if (line.includes('Generator is already executing.')) {
-                diagnostics.push({
-                    id: crypto.randomUUID(),
-                    startLine: idx,
-                    startCharacter: 0,
-                    endLine: undefined,
-                    endCharacter: undefined,
-                    message: 'Está mal escrito.',
-                    isResolved: false
-                });
-            }
+    async generateDiagnostics(file) {
+        const diagnostics = await sendFile(file);
+        this.currentDiagnostics = diagnostics.map(diagnostic => {
+            return {
+                ...diagnostic,
+                id: crypto.randomUUID(),
+                isResolved: false
+            };
         });
-        this.currentDiagnostics = diagnostics;
-        return diagnostics;
+        return this.currentDiagnostics;
     }
 
     resolveDiagnostic(id) {
