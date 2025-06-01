@@ -1,5 +1,14 @@
 const vscode = require('vscode');
 
+/* 
+diagnostics: {
+    startLine: number,
+    startCharacter: number,
+    endLine: number | undefined,
+    endCharacter: number | undefined,
+    message: string,
+}[]
+*/
 let decorationType;
 
 const createComments = (editor, diagnostics, diagnosticCollection) => {
