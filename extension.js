@@ -372,35 +372,6 @@ function generateAnalysisHTML(analysisResult) {
 				</div>
 			</div>
 
-			${/*issues.length > 0 ? `
-			<div class="section">
-				<h2>🔍 Problemas Encontrados</h2>
-				${issues.map((issue, index) => `
-					<div class="issue ${issue.severity}">
-						<div class="issue-header">
-							<span>${severityIcons[issue.severity] || '📝'}</span>
-							<span class="issue-title">${issue.title}</span>
-							<span class="issue-location" onclick="openFile('${issue.line || 1}')">
-								Línea ${issue.line || 1}:${issue.column || 1}
-							</span>
-						</div>
-						<p><strong>Problema:</strong> ${issue.message}</p>
-						<p><strong>Acción recomendada:</strong> ${issue.action || 'Ver sugerencias'}</p>
-						
-						${issue.codeBefore ? `
-							<p><strong>Código actual:</strong></p>
-							<div class="code-block code-before">${issue.codeBefore}</div>
-						` : ''}
-						
-						${issue.codeAfter ? `
-							<p><strong>Código sugerido:</strong></p>
-							<div class="code-block code-after">${issue.codeAfter}</div>
-						` : ''}
-					</div>
-				`).join('')}
-			</div>
-			` : ''}*/ ''}
-
 			${markdownContent ? `
 			<div class="section">
 				<div class="markdown-content">
