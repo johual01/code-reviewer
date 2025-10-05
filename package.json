@@ -10,6 +10,9 @@
   "categories": [
     "Other"
   ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./extension.js",
   "contributes": {
     "commands": [
@@ -28,12 +31,17 @@
     ]
   },
   "scripts": {
-    "test": "node ./test/extension.test.js"
+    "test": "node ./test/extension.test.js",
+    "package": "vsce package",
+    "publish": "vsce publish",
+    "package-with-host": "HOST={$1} vsce package"
   },
   "devDependencies": {
-    "@types/vscode": "^1.78.0"
+    "@types/vscode": "^1.78.0",
+    "@vscode/test-electron": "^2.5.2"
   },
   "dependencies": {
-    "axios": "^1.9.0"
+    "axios": "^1.9.0",
+    "form-data": "^4.0.0"
   }
 }

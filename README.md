@@ -1,65 +1,152 @@
-# code-reviewer README
+# Code Reviewer - VS Code Extension
 
-This is the README for your extension "code-reviewer". After writing up a brief description, we recommend including the following sections.
+Una extensión de VS Code que proporciona análisis inteligente de código JavaScript y TypeScript utilizando IA para detectar problemas, violaciones de principios SOLID y oportunidades de mejora.
 
-## Features
+## Características
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- 🤖 **Análisis con IA**: Utiliza inteligencia artificial para análisis profundo del código
+- 🏗️ **Principios SOLID**: Detecta violaciones de los principios SOLID de programación
+- 📊 **Evaluación de calidad**: Proporciona puntuaciones de estilo y complejidad
+- 🔧 **Sugerencias de mejora**: Ofrece código mejorado y acciones recomendadas
+- ⚡ **Integración VS Code**: Diagnósticos y comentarios directamente en el editor
+- 🎯 **Soporte GitHub**: Autenticación automática usando tu cuenta de GitHub en VS Code
 
-For example if there is an image subfolder under your extension project workspace:
+## Requisitos
 
-\!\[feature X\]\(images/feature-x.png\)
+### Backend
+Esta extensión requiere que el backend de Code Reviewer esté ejecutándose. El backend debe estar disponible en:
+```
+http://localhost:3000
+```
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+### Variables de entorno
+Crea un archivo `.env` en el directorio raíz de la extensión con:
+```
+HOST=http://localhost:3000
+```
 
-## Requirements
+Para usar variables de entorno, instala dotenv:
+```bash
+npm install dotenv
+```
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+Y agrega al inicio de `extension.js`:
+```javascript
+require('dotenv').config();
+```
 
-## Extension Settings
+### Dependencias
+- Node.js
+- VS Code cuenta GitHub conectada
+- Backend de Code Reviewer ejecutándose
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+## Instalación
 
-For example:
+1. Clona este repositorio
+2. Ejecuta `npm install` para instalar dependencias
+3. Asegúrate de que el backend esté ejecutándose
+4. Presiona `F5` para ejecutar la extensión en modo desarrollo
 
-This extension contributes the following settings:
+## Configuración
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+### Archivo de configuración
+La extensión busca un archivo `config_cr.yml` en la raíz de tu proyecto para configurar las reglas de análisis.
 
-## Known Issues
+Ejemplo de `config_cr.yml`:
+```yaml
+rules:
+  - SOLID_SRP
+  - SOLID_OCP
+  - SOLID_LSP
+  - SOLID_ISP
+  - SOLID_DIP
+```
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+## Uso
 
-## Release Notes
+### Comandos disponibles
 
-Users appreciate release notes as you update your extension.
+1. **Code Reviewer: Revisar Código** (`code-reviewer.review`)
+   - Analiza el archivo actualmente abierto
+   - Genera diagnósticos y comentarios en el editor
+   - Muestra evaluación de calidad del código
+
+2. **Code Reviewer: Configurar** (`code-reviewer.config`)
+   - Configura la extensión y actualiza reglas
+   - Se ejecuta automáticamente al iniciar
+
+3. **Code Reviewer: Resolver Diagnóstico** (`code-reviewer.resolveDiagnostic`)
+   - Marca un diagnóstico como resuelto
+
+### Flujo de trabajo
+
+1. **Inicio automático**: La extensión se configura automáticamente al cargar VS Code
+2. **Análisis manual**: Usa `Ctrl+Shift+P` > "Code Reviewer: Revisar Código"
+3. **Análisis automático**: Al guardar archivos JS/TS, se pregunta si deseas analizar
+4. **Revisión de resultados**: Los problemas aparecen como diagnósticos en el editor
+5. **Aplicar mejoras**: Usa las sugerencias para mejorar tu código
+
+## Estructura de respuesta de la API
+
+### Objeto Issue
+```typescript
+interface Issue {
+  ruleCode: string;           // Código único de la regla
+  title: string;              // Título descriptivo del problema
+  message: string;            // Descripción del problema
+  severity: 'error' | 'warning' | 'suggestion';
+  line: number;               // Línea donde ocurre el problema
+  column: number;             // Columna donde ocurre el problema
+  codeBefore: string;         // Código problemático actual
+  codeAfter: string;          // Código sugerido mejorado
+  action: string;             // Acción recomendada
+}
+```
+
+### Objeto Evaluation
+```typescript
+interface Evaluation {
+  styleScore: number;         // Puntuación de estilo (0-100)
+  complexity: number;         // Nivel de complejidad
+  issuesCount: number;        // Cantidad de problemas encontrados
+}
+```
+
+## Problemas conocidos
+
+- Solo soporta archivos JavaScript (.js) y TypeScript (.ts)
+- Requiere conexión a internet para el análisis con IA
+- El backend debe estar ejecutándose para funcionar
+
+## Notas de versión
 
 ### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+- Lanzamiento inicial con análisis básico de código
+- Integración con backend de IA
+- Soporte para principios SOLID
+- Autenticación GitHub automática
 
 ---
 
-## Working with Markdown
+## Desarrollo
 
-You can author your README using Visual Studio Code.  Here are some useful editor keyboard shortcuts:
+### Estructura del proyecto
+```
+├── extension.js          # Punto de entrada principal
+├── service.js            # Comunicación con backend
+├── diagnostic.js         # Manejo de diagnósticos
+├── comment.js            # Comentarios en editor
+├── package.json          # Configuración de la extensión
+└── resources/            # Recursos estáticos
+```
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux)
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux)
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets
+### API del Backend
+La extensión se comunica con el backend usando los siguientes endpoints:
 
-## For more information
+- `POST /auth/session` - Autenticación
+- `POST /rules/config-changed` - Configuración de reglas
+- `POST /analyze` - Análisis de archivos
 
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+Para más detalles, consulta las instrucciones de Copilot en `.github/copilot-instructions.md`.
 
-**Enjoy!**
+**¡Disfruta mejorando tu código!**
