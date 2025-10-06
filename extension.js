@@ -95,34 +95,53 @@ async function activate(context) {
 		}
 
 		try {
-			// Mostrar mensaje de análisis en progreso
-			vscode.window.showInformationMessage('Analizando archivo...');
-			
-			const analysisResult = await analyzeFile(fileName);
-			console.log('Analysis result:', analysisResult);
-
-			// Convertir issues a diagnósticos
-			const diagnostics = convertIssuesToDiagnostics(analysisResult.issues || []);
-			diagnosticsInstance.setDiagnostics(diagnostics);
-
-			// Crear comentarios en el editor
-			await createComments(editor, diagnostics, diagnosticCollection);
-
-			// Mostrar resumen
-			if (diagnostics.length === 0) {
-				vscode.window.showInformationMessage('¡Tu código está perfecto!');
-			} else {
-				const evaluation = analysisResult.evaluation;
-				const message = `Análisis completado: ${diagnostics.length} problemas encontrados. ` +
-							   `Puntuación de estilo: ${evaluation?.styleScore || 'N/A'}/100. ` +
-							   `Complejidad: ${evaluation?.complexity || 'N/A'}.`;
-				
-				const result = await vscode.window.showInformationMessage(message, 'Ver Resumen Completo');
-				
-				if (result === 'Ver Resumen Completo') {
-					showAnalysisPanel(context, analysisResult);
+			// Mostrar barra de progreso durante el análisis
+			await vscode.window.withProgress(
+				{
+					location: vscode.ProgressLocation.Notification,
+					title: 'Code Reviewer',
+					cancellable: false,
+				},
+				async (progress, token) => {
+					// Paso 1: Iniciar análisis
+					progress.report({ increment: 0, message: 'Iniciando análisis del archivo...' });
+					
+					const analysisResult = await analyzeFile(fileName);
+					console.log('Analysis result:', analysisResult);
+					
+					// Paso 2: Procesando resultados
+					progress.report({ increment: 50, message: 'Procesando resultados...' });
+					
+					// Convertir issues a diagnósticos
+					const diagnostics = convertIssuesToDiagnostics(analysisResult.issues || []);
+					diagnosticsInstance.setDiagnostics(diagnostics);
+					
+					// Paso 3: Creando comentarios
+					progress.report({ increment: 80, message: 'Creando comentarios en el editor...' });
+					
+					// Crear comentarios en el editor
+					await createComments(editor, diagnostics, diagnosticCollection);
+					
+					// Paso 4: Finalizando
+					progress.report({ increment: 100, message: 'Análisis completado' });
+					
+					// Mostrar resumen después del progreso
+					if (diagnostics.length === 0) {
+						vscode.window.showInformationMessage('¡Tu código está perfecto!');
+					} else {
+						const evaluation = analysisResult.evaluation;
+						const message = `Análisis completado: ${diagnostics.length} problemas encontrados. ` +
+									   `Puntuación de estilo: ${evaluation?.styleScore || 'N/A'}/100. ` +
+									   `Complejidad: ${evaluation?.complexity || 'N/A'}.`;
+						
+						const result = await vscode.window.showInformationMessage(message, 'Ver Resumen Completo');
+						
+						if (result === 'Ver Resumen Completo') {
+							showAnalysisPanel(context, analysisResult);
+						}
+					}
 				}
-			}
+			);
 		} catch (error) {
 			console.error('Error during analysis:', error);
 			vscode.window.showErrorMessage(`Error durante el análisis: ${error.message}`);
