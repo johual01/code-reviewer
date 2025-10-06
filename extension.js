@@ -258,12 +258,6 @@ function generateAnalysisHTML(analysisResult) {
 			.replace(/\n/g, '<br>');
 	}
 
-	const severityIcons = {
-		'error': '❌',
-		'warning': '⚠️',
-		'suggestion': '💡'
-	};
-
 	return `
 		<!DOCTYPE html>
 		<html lang="es">
