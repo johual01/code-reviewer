@@ -5,6 +5,39 @@ const path = require('path');
 const fs = require('fs');
 const { createSession, updateConfiguration, analyzeFile, convertIssuesToDiagnostics, authentication } = require('./service');
 
+// Simple YAML parser para las reglas (evita dependencias externas)
+function parseYAMLRules(yamlContent) {
+	const rules = [];
+	const lines = yamlContent.split('\n');
+	let inRulesSection = false;
+	
+	for (const line of lines) {
+		const trimmedLine = line.trim();
+		
+		// Detectar el inicio de la sección rules
+		if (trimmedLine === 'rules:') {
+			inRulesSection = true;
+			continue;
+		}
+		
+		// Si estamos en la sección rules y la línea está indentada
+		if (inRulesSection && line.startsWith('  ') && trimmedLine.includes(':')) {
+			const [ruleName, ruleValue] = trimmedLine.split(':').map(s => s.trim());
+			// Agregar la regla si está marcada como true
+			if (ruleValue === 'true') {
+				rules.push(ruleName);
+			}
+		} 
+		// Si encontramos una línea que no está indentada y no está vacía, salir de la sección rules
+		else if (inRulesSection && !line.startsWith('  ') && trimmedLine !== '' && !trimmedLine.startsWith('#')) {
+			break;
+		}
+	}
+	
+	console.log(`Parser YAML: Encontradas ${rules.length} reglas activas:`, rules.slice(0, 5), rules.length > 5 ? '...' : '');
+	return rules;
+}
+
 const diagnosticsInstance = new Diagnostics();
 
 /**
@@ -38,6 +71,7 @@ async function activate(context) {
 		}
 		const baseFolder = workspaceFolders[0].uri.fsPath;
 		const configPath = path.join(baseFolder, 'crconfig.yml');
+		const exampleConfigPath = path.join(baseFolder, 'crconfig-example.yml');
 
 		try {
 			if (args.reason === 'startup') {
@@ -45,76 +79,53 @@ async function activate(context) {
 				await createSession();
 				console.log('Sesión de Code Reviewer iniciada exitosamente.');
 			} else {
-				// Leer configuración desde el archivo YAML y actualizar reglas
-				// Por ahora, usamos reglas por defecto (en el futuro se puede parsear el YAML)
-				const defaultRules = [
-					"AIRBNB_TYPES",
-					"AIRBNB_VARS",
-					"AIRBNB_SCOPE",
-					"AIRBNB_OBJECTS",
-					"AIRBNB_ARRAYS",
-					"AIRBNB_DESTRUCT",
-					"AIRBNB_STRINGS",
-					"AIRBNB_FUNCS",
-					"AIRBNB_CLASSES",
-					"AIRBNB_MODULES",
-					"AIRBNB_ITER",
-					"AIRBNB_ACCESS",
-					"AIRBNB_SINGLE_DECL",
-					"AIRBNB_UNARY",
-					"AIRBNB_COMPARE",
-					"AIRBNB_CONTROL",
-					"AIRBNB_DOCS",
-					"AIRBNB_FORMAT",
-					"AIRBNB_COMMAS",
-					"AIRBNB_SEMICOLON",
-					"AIRBNB_NAMES",
-					"AIRBNB_BOOL",
-					"AIRBNB_STD",
-					"AIRBNB_PERF",
-					"AIRBNB_UNUSED",
-					"AIRBNB_HOIST",
-					
-					"CLEAN_CLARITY",
-					"CLEAN_NAMES",
-					"CLEAN_SMALL_FUNCS",
-					"CLEAN_COMMENTS",
-					"CLEAN_ERRORS",
-					
-					"SOLID_SRP_A",
-					"SOLID_SRP_B",
-					"SOLID_SRP_C",
-					"SOLID_OCP_A",
-					"SOLID_OCP_B",
-					"SOLID_OCP_C",
-					"SOLID_LSP_A",
-					"SOLID_LSP_B",
-					"SOLID_LSP_C",
-					"SOLID_ISP_A",
-					"SOLID_ISP_B",
-					"SOLID_ISP_C",
-					"SOLID_DIP_A",
-					"SOLID_DIP_B",
-					"SOLID_DIP_C",
-					"SOLID_DIP_D",
-					"SOLID_DIP_E",
-					
-					"DRY",
-					"KISS",
-					"YAGNI",
-					"TDA"
-				];
+				let rules = [];
 				
+				// Intentar leer el archivo de configuración del usuario primero
 				if (fs.existsSync(configPath)) {
-					const configContent = fs.readFileSync(configPath, 'utf8');
-					// TODO: parsear el YAML para extraer las reglas personalizadas
-					console.log('Config file found, using default rules for now:', configContent);
-				} else {
-					console.log('Config file not found, using default rules');
+					try {
+						const configContent = fs.readFileSync(configPath, 'utf8');
+						rules = parseYAMLRules(configContent);
+						console.log('Config file found, parsed rules:', rules);
+					} catch (parseError) {
+						console.error('Error parsing user config:', parseError);
+						vscode.window.showWarningMessage('Error al parsear crconfig.yml, usando configuración de ejemplo.');
+					}
 				}
 				
-				await updateConfiguration(defaultRules, args.reason === 'startup' ? 'create' : 'update');
-				vscode.window.showInformationMessage('Configuración actualizada exitosamente.');
+				// Si no hay configuración del usuario o falló el parsing, usar el ejemplo
+				if (rules.length === 0 && fs.existsSync(exampleConfigPath)) {
+					try {
+						const exampleContent = fs.readFileSync(exampleConfigPath, 'utf8');
+						rules = parseYAMLRules(exampleContent);
+						console.log('Using example config, parsed rules:', rules);
+					} catch (parseError) {
+						console.error('Error parsing example config:', parseError);
+					}
+				}
+				
+				// Si aún no hay reglas, usar las por defecto como fallback
+				if (rules.length === 0) {
+					rules = [
+						"AIRBNB_TYPES", "AIRBNB_VARS", "AIRBNB_SCOPE", "AIRBNB_OBJECTS",
+						"AIRBNB_ARRAYS", "AIRBNB_DESTRUCT", "AIRBNB_STRINGS", "AIRBNB_FUNCS",
+						"AIRBNB_CLASSES", "AIRBNB_MODULES", "AIRBNB_ITER", "AIRBNB_ACCESS",
+						"AIRBNB_SINGLE_DECL", "AIRBNB_UNARY", "AIRBNB_COMPARE", "AIRBNB_CONTROL",
+						"AIRBNB_DOCS", "AIRBNB_FORMAT", "AIRBNB_COMMAS", "AIRBNB_SEMICOLON",
+						"AIRBNB_NAMES", "AIRBNB_BOOL", "AIRBNB_STD", "AIRBNB_PERF",
+						"AIRBNB_UNUSED", "AIRBNB_HOIST", "CLEAN_CLARITY", "CLEAN_NAMES",
+						"CLEAN_SMALL_FUNCS", "CLEAN_COMMENTS", "CLEAN_ERRORS",
+						"SOLID_SRP_A", "SOLID_SRP_B", "SOLID_SRP_C", "SOLID_OCP_A",
+						"SOLID_OCP_B", "SOLID_OCP_C", "SOLID_LSP_A", "SOLID_LSP_B",
+						"SOLID_LSP_C", "SOLID_ISP_A", "SOLID_ISP_B", "SOLID_ISP_C",
+						"SOLID_DIP_A", "SOLID_DIP_B", "SOLID_DIP_C", "SOLID_DIP_D",
+						"SOLID_DIP_E", "DRY", "KISS", "YAGNI", "TDA"
+					];
+					console.log('Using fallback default rules');
+				}
+				
+				await updateConfiguration(rules, args.reason === 'startup' ? 'create' : 'update');
+				vscode.window.showInformationMessage(`Configuración actualizada con ${rules.length} reglas.`);
 			}
 		} catch (err) {
 			console.error('Error en configuración:', err);
