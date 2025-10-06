@@ -167,7 +167,7 @@ async function activate(context) {
 		const ext = document.fileName.split('.').pop();
 		const fileName = path.basename(document.fileName);
 
-		if (fileName === 'config_cr.yml') {
+		if (fileName === 'crconfig.yml') {
 			await vscode.commands.executeCommand('code-reviewer.config', { reason: 'configUpdate' });
 			return;
 		}
