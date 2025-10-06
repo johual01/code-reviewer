@@ -37,7 +37,7 @@ async function activate(context) {
 			return;
 		}
 		const baseFolder = workspaceFolders[0].uri.fsPath;
-		const configPath = path.join(baseFolder, 'config_cr.yml');
+		const configPath = path.join(baseFolder, 'crconfig.yml');
 
 		try {
 			if (args.reason === 'startup') {
@@ -47,7 +47,63 @@ async function activate(context) {
 			} else {
 				// Leer configuración desde el archivo YAML y actualizar reglas
 				// Por ahora, usamos reglas por defecto (en el futuro se puede parsear el YAML)
-				const defaultRules = ['SOLID_SRP', 'SOLID_OCP', 'SOLID_LSP', 'SOLID_ISP', 'SOLID_DIP'];
+				const defaultRules = [
+					"AIRBNB_TYPES",
+					"AIRBNB_VARS",
+					"AIRBNB_SCOPE",
+					"AIRBNB_OBJECTS",
+					"AIRBNB_ARRAYS",
+					"AIRBNB_DESTRUCT",
+					"AIRBNB_STRINGS",
+					"AIRBNB_FUNCS",
+					"AIRBNB_CLASSES",
+					"AIRBNB_MODULES",
+					"AIRBNB_ITER",
+					"AIRBNB_ACCESS",
+					"AIRBNB_SINGLE_DECL",
+					"AIRBNB_UNARY",
+					"AIRBNB_COMPARE",
+					"AIRBNB_CONTROL",
+					"AIRBNB_DOCS",
+					"AIRBNB_FORMAT",
+					"AIRBNB_COMMAS",
+					"AIRBNB_SEMICOLON",
+					"AIRBNB_NAMES",
+					"AIRBNB_BOOL",
+					"AIRBNB_STD",
+					"AIRBNB_PERF",
+					"AIRBNB_UNUSED",
+					"AIRBNB_HOIST",
+					
+					"CLEAN_CLARITY",
+					"CLEAN_NAMES",
+					"CLEAN_SMALL_FUNCS",
+					"CLEAN_COMMENTS",
+					"CLEAN_ERRORS",
+					
+					"SOLID_SRP_A",
+					"SOLID_SRP_B",
+					"SOLID_SRP_C",
+					"SOLID_OCP_A",
+					"SOLID_OCP_B",
+					"SOLID_OCP_C",
+					"SOLID_LSP_A",
+					"SOLID_LSP_B",
+					"SOLID_LSP_C",
+					"SOLID_ISP_A",
+					"SOLID_ISP_B",
+					"SOLID_ISP_C",
+					"SOLID_DIP_A",
+					"SOLID_DIP_B",
+					"SOLID_DIP_C",
+					"SOLID_DIP_D",
+					"SOLID_DIP_E",
+					
+					"DRY",
+					"KISS",
+					"YAGNI",
+					"TDA"
+				];
 				
 				if (fs.existsSync(configPath)) {
 					const configContent = fs.readFileSync(configPath, 'utf8');
@@ -85,9 +141,49 @@ async function activate(context) {
 
 		if (!authentication.token) {
 			try {
-				vscode.window.showInformationMessage('No hay sesión activa. Creando nueva sesión...');
-				await createSession();
-				vscode.window.showInformationMessage('Sesión creada exitosamente.');
+				await vscode.window.withProgress(
+					{
+						location: vscode.ProgressLocation.Notification,
+						title: 'Code Reviewer',
+						cancellable: false,
+					},
+					async (progress, _) => {
+						let currentProgress = 0;
+						let sessionCompleted = false;
+						
+						// Ejecutar createSession en paralelo
+						const sessionPromise = createSession().then(() => {
+							sessionCompleted = true;
+						});
+						
+						// Actualizar progreso cada 200ms mientras la sesión se crea
+						const progressInterval = setInterval(() => {
+							if (!sessionCompleted && currentProgress < 90) {
+								currentProgress += Math.random() * 15; // Incremento aleatorio entre 0-15
+								if (currentProgress > 90) currentProgress = 90;
+								
+								let message = 'Creando sesión...';
+								if (currentProgress < 30) {
+									message = 'Iniciando conexión...';
+								} else if (currentProgress < 60) {
+									message = 'Autenticando...';
+								} else if (currentProgress < 90) {
+									message = 'Configurando sesión...';
+								}
+								
+								progress.report({ increment: currentProgress, message });
+							}
+						}, 100);
+						
+						// Esperar a que termine la sesión
+						await sessionPromise;
+						clearInterval(progressInterval);
+						
+						// Completar al 100%
+						progress.report({ increment: 100, message: 'Sesión creada exitosamente' });
+						await new Promise(resolve => setTimeout(resolve, 300)); // Pequeña pausa para mostrar el 100%
+					}
+				);
 			} catch (error) {
 				vscode.window.showErrorMessage(`Error al crear sesión: ${error.message}`);
 				return;
@@ -102,28 +198,56 @@ async function activate(context) {
 					title: 'Code Reviewer',
 					cancellable: false,
 				},
-				async (progress, token) => {
-					// Paso 1: Iniciar análisis
-					progress.report({ increment: 0, message: 'Iniciando análisis del archivo...' });
+				async (progress, _) => {
+					let currentProgress = 0;
+					let analysisCompleted = false;
+					let diagnostics = [];
+					let analysisResult = {};
 					
-					const analysisResult = await analyzeFile(fileName);
-					console.log('Analysis result:', analysisResult);
+					// Ejecutar análisis en paralelo
+					const analysisPromise = analyzeFile(fileName).then((result) => {
+						analysisResult = result;
+						console.log('Analysis result:', analysisResult);
+						
+						// Convertir issues a diagnósticos
+						diagnostics = convertIssuesToDiagnostics(analysisResult.issues || []);
+						diagnosticsInstance.setDiagnostics(diagnostics);
+						
+						analysisCompleted = true;
+					});
 					
-					// Paso 2: Procesando resultados
-					progress.report({ increment: 50, message: 'Procesando resultados...' });
+					// Actualizar progreso cada 150ms mientras se analiza
+					const progressInterval = setInterval(() => {
+						if (!analysisCompleted && currentProgress < 85) {
+							currentProgress += Math.random() * 12; // Incremento aleatorio entre 0-12
+							if (currentProgress > 85) currentProgress = 85;
+							
+							let message = 'Analizando código...';
+							if (currentProgress < 20) {
+								message = 'Leyendo archivo...';
+							} else if (currentProgress < 40) {
+								message = 'Aplicando reglas de estilo...';
+							} else if (currentProgress < 65) {
+								message = 'Evaluando complejidad...';
+							} else if (currentProgress < 85) {
+								message = 'Generando sugerencias...';
+							}
+							
+							progress.report({ increment: currentProgress, message });
+						}
+					}, 150);
 					
-					// Convertir issues a diagnósticos
-					const diagnostics = convertIssuesToDiagnostics(analysisResult.issues || []);
-					diagnosticsInstance.setDiagnostics(diagnostics);
+					// Esperar a que termine el análisis
+					await analysisPromise;
+					clearInterval(progressInterval);
 					
-					// Paso 3: Creando comentarios
-					progress.report({ increment: 80, message: 'Creando comentarios en el editor...' });
-					
-					// Crear comentarios en el editor
+					// Crear comentarios
+					progress.report({ increment: 90, message: 'Creando comentarios en el editor...' });
 					await createComments(editor, diagnostics, diagnosticCollection);
 					
-					// Paso 4: Finalizando
+					// Completar al 100%
 					progress.report({ increment: 100, message: 'Análisis completado' });
+					await new Promise(resolve => setTimeout(resolve, 200)); // Pequeña pausa para mostrar el 100%
 					
 					// Mostrar resumen después del progreso
 					if (diagnostics.length === 0) {
