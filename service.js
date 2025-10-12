@@ -5,7 +5,7 @@ const vscode = require('vscode');
 const FormData = require('form-data');
 
 // Configuración del servidor
-const SERVER_URL = process.env.HOST || 'http://localhost:3001/api/v1';
+const SERVER_URL = process.env.HOST || 'http://localhost:3000/api';
 
 const authentication = {
     token: null,
@@ -50,11 +50,64 @@ async function refreshToken() {
             console.log('Token renovado exitosamente:', response.data.message);
             return response.data.data;
         } else {
+            // Verificar si el mensaje indica que el token es muy viejo
+            const errorMessage = response.data.message || '';
+            if (errorMessage.includes('Token too old to refresh')) {
+                throw new Error('TOKEN_TOO_OLD');
+            }
             throw new Error('Error al renovar el token');
         }
     } catch (error) {
+        // Si es un error de respuesta del servidor
+        if (error.response && error.response.data && error.response.data.message) {
+            const errorMessage = error.response.data.message;
+            if (errorMessage.includes('Token too old to refresh') || errorMessage.includes('please login again')) {
+                console.log('Token demasiado viejo, se requiere nueva autenticación');
+                throw new Error('TOKEN_TOO_OLD');
+            }
+        }
+        
         console.error('Error refreshing token:', error);
         throw error;
+    }
+}
+
+// Nueva función para limpiar la autenticación y forzar re-login
+function clearAuthentication() {
+    authentication.token = null;
+    authentication.refreshToken = null;
+    authentication.userId = null;
+    authentication.projectId = null;
+    authentication.rulesetVersion = null;
+    authentication.rulesetStatus = null;
+    console.log('Autenticación limpiada, se requerirá nueva sesión');
+}
+
+// Nueva función para verificar el estado de la autenticación
+function getAuthenticationStatus() {
+    return {
+        hasToken: !!authentication.token,
+        hasRefreshToken: !!authentication.refreshToken,
+        userId: authentication.userId,
+        projectId: authentication.projectId
+    };
+}
+
+// Nueva función para manejar errores de autenticación con reintento automático
+async function handleAuthError(originalFunction, ...args) {
+    try {
+        await refreshToken();
+        return await originalFunction(...args);
+    } catch (refreshError) {
+        if (refreshError.message === 'TOKEN_TOO_OLD') {
+            console.log('Token demasiado viejo, iniciando nueva sesión automáticamente...');
+            clearAuthentication();
+            // Crear nueva sesión
+            await createSession();
+            // Reintentar la función original
+            return await originalFunction(...args);
+        }
+        throw new Error('Token de autenticación inválido y no se pudo renovar. Por favor, cree una nueva sesión.');
     }
 }
 
@@ -100,8 +153,8 @@ async function updateConfiguration(rules, reason = 'update') {
         throw new Error('No authentication token available. Please create session first.');
     }
 
-    try {
-        const response = await axios.post(SERVER_URL + '/rules/config-changed', {
+    const makeRequest = async () => {
+        return await axios.post(SERVER_URL + '/rules/config-changed', {
             projectId: authentication.projectId,
             reason: reason,
             rules: rules
@@ -111,6 +164,10 @@ async function updateConfiguration(rules, reason = 'update') {
                 'Authorization': `Bearer ${authentication.token}`,
             },
         });
+    };
+
+    try {
+        const response = await makeRequest();
 
         if (response.data.success) {
             // Actualizar versión del ruleset si está disponible
@@ -124,32 +181,21 @@ async function updateConfiguration(rules, reason = 'update') {
         }
     } catch (error) {
         if (error.response && error.response.status === 401) {
-            console.log('Auth token expired, refreshing...');
+            console.log('Auth token expired, attempting to handle auth error...');
             try {
-                await refreshToken();
-                // Reintentar la petición con el nuevo token
-                const retryResponse = await axios.post(SERVER_URL + '/rules/config-changed', {
-                    projectId: authentication.projectId,
-                    reason: reason,
-                    rules: rules
-                }, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${authentication.token}`,
-                    },
-                });
+                const retryResponse = await handleAuthError(makeRequest);
                 
                 if (retryResponse.data.success) {
                     if (retryResponse.data.data.rulesetVersion) {
                         authentication.rulesetVersion = retryResponse.data.data.rulesetVersion;
                     }
-                    console.log('Configuración actualizada exitosamente tras reintento:', retryResponse.data.message);
+                    console.log('Configuración actualizada exitosamente tras reautenticación:', retryResponse.data.message);
                     return retryResponse.data.data;
                 } else {
-                    throw new Error('Error al actualizar configuración tras reintento');
+                    throw new Error('Error al actualizar configuración tras reautenticación');
                 }
-            } catch (refreshError) {
-                throw new Error('Token de autenticación inválido y no se pudo renovar. Por favor, cree una nueva sesión.');
+            } catch (authError) {
+                throw new Error(`Error de autenticación: ${authError.message}`);
             }
         }
         console.error('Error updating configuration:', error);
@@ -167,19 +213,23 @@ async function analyzeFile(filePath) {
         throw new Error('No se pudo obtener el archivo para analizar.');
     }
 
-    const form = new FormData();
-    form.append('rulesetVersion', authentication.rulesetVersion);
-    form.append('filePath', filePath);
-    form.append('fileContent', fileData, path.basename(filePath));
-    form.append('projectId', authentication.projectId);
+    const makeRequest = async () => {
+        const form = new FormData();
+        form.append('rulesetVersion', authentication.rulesetVersion);
+        form.append('filePath', filePath);
+        form.append('fileContent', fileData, path.basename(filePath));
+        form.append('projectId', authentication.projectId);
 
-    try {
-        const response = await axios.post(SERVER_URL + '/analyze', form, {
+        return await axios.post(SERVER_URL + '/analyze', form, {
             headers: {
                 'Content-Type': 'multipart/form-data',
                 'Authorization': `Bearer ${authentication.token}`,
             },
         });
+    };
+
+    try {
+        const response = await makeRequest();
 
         if (response.data.success) {
             console.log('Archivo analizado exitosamente:', response.data.message);
@@ -189,31 +239,18 @@ async function analyzeFile(filePath) {
         }
     } catch (error) {
         if (error.response && error.response.status === 401) {
-            console.log('Auth token expired, refreshing...');
+            console.log('Auth token expired, attempting to handle auth error...');
             try {
-                await refreshToken();
-                // Recrear el form con el nuevo token
-                const retryForm = new FormData();
-                retryForm.append('rulesetVersion', authentication.rulesetVersion);
-                retryForm.append('filePath', filePath);
-                retryForm.append('fileContent', fileData, path.basename(filePath));
-                retryForm.append('projectId', authentication.projectId);
-                
-                const retryResponse = await axios.post(SERVER_URL + '/analyze', retryForm, {
-                    headers: {
-                        'Content-Type': 'multipart/form-data',
-                        'Authorization': `Bearer ${authentication.token}`,
-                    },
-                });
+                const retryResponse = await handleAuthError(makeRequest);
                 
                 if (retryResponse.data.success) {
-                    console.log('Archivo analizado exitosamente tras reintento:', retryResponse.data.message);
+                    console.log('Archivo analizado exitosamente tras reautenticación:', retryResponse.data.message);
                     return retryResponse.data.data;
                 } else {
-                    throw new Error('Error al analizar el archivo tras reintento');
+                    throw new Error('Error al analizar el archivo tras reautenticación');
                 }
-            } catch (refreshError) {
-                throw new Error('Token de autenticación inválido y no se pudo renovar. Por favor, cree una nueva sesión.');
+            } catch (authError) {
+                throw new Error(`Error de autenticación: ${authError.message}`);
             }
         }
         console.error('Error analyzing file:', error);
@@ -243,5 +280,8 @@ module.exports = {
     updateConfiguration,
     analyzeFile,
     convertIssuesToDiagnostics,
+    clearAuthentication,
+    handleAuthError,
+    getAuthenticationStatus,
     authentication
 };

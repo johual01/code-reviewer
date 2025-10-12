@@ -3,7 +3,7 @@ const Diagnostics = require('./diagnostic');
 const { createComments } = require('./comment');
 const path = require('path');
 const fs = require('fs');
-const { createSession, updateConfiguration, analyzeFile, convertIssuesToDiagnostics, authentication } = require('./service');
+const { createSession, updateConfiguration, analyzeFile, convertIssuesToDiagnostics, clearAuthentication, handleAuthError, getAuthenticationStatus, authentication } = require('./service');
 
 // Simple YAML parser para las reglas (evita dependencias externas)
 function parseYAMLRules(yamlContent) {
@@ -130,8 +130,16 @@ async function activate(context) {
 		} catch (err) {
 			console.error('Error en configuración:', err);
 			if (args.reason !== 'startup') {
-				// Solo mostrar error al usuario si no es el startup
-				vscode.window.showErrorMessage(`Error en configuración: ${err.message}`);
+				// Detectar si el error fue debido a reautenticación automática
+				if (err.message && err.message.includes('Error de autenticación')) {
+					if (authentication.token) {
+						vscode.window.showInformationMessage('Sesión renovada automáticamente. Configuración actualizada.');
+					} else {
+						vscode.window.showErrorMessage('Error de autenticación en configuración. Por favor, intente nuevamente.');
+					}
+				} else {
+					vscode.window.showErrorMessage(`Error en configuración: ${err.message}`);
+				}
 			}
 		}
 	});
@@ -279,7 +287,18 @@ async function activate(context) {
 			);
 		} catch (error) {
 			console.error('Error during analysis:', error);
-			vscode.window.showErrorMessage(`Error durante el análisis: ${error.message}`);
+			
+			// Detectar si el error fue debido a reautenticación automática
+			if (error.message && error.message.includes('Error de autenticación')) {
+				// Verificar si la reautenticación fue exitosa
+				if (authentication.token) {
+					vscode.window.showInformationMessage('Sesión renovada automáticamente. El análisis se completó exitosamente.');
+				} else {
+					vscode.window.showErrorMessage('Error de autenticación. Por favor, intente nuevamente.');
+				}
+			} else {
+				vscode.window.showErrorMessage(`Error durante el análisis: ${error.message}`);
+			}
 		}
 	});
 	context.subscriptions.push(disposable);
@@ -296,6 +315,29 @@ async function activate(context) {
 		}
 	});
 	context.subscriptions.push(resolveDiagnostic);
+
+	// Comando para limpiar autenticación (útil para debugging y cuando hay problemas de token)
+	const clearAuth = vscode.commands.registerCommand('code-reviewer.clearAuth', async () => {
+		const { clearAuthentication, getAuthenticationStatus } = require('./service');
+		const authStatus = getAuthenticationStatus();
+		
+		if (!authStatus.hasToken && !authStatus.hasRefreshToken) {
+			vscode.window.showInformationMessage('No hay sesión activa para limpiar.');
+			return;
+		}
+
+		const result = await vscode.window.showWarningMessage(
+			'¿Está seguro de que desea limpiar la sesión actual? Esto requerirá autenticarse nuevamente.',
+			'Sí, limpiar sesión',
+			'Cancelar'
+		);
+
+		if (result === 'Sí, limpiar sesión') {
+			clearAuthentication();
+			vscode.window.showInformationMessage('Sesión limpiada. Se requerirá una nueva autenticación en el próximo análisis.');
+		}
+	});
+	context.subscriptions.push(clearAuth);
 
 	const saveListener = vscode.workspace.onDidSaveTextDocument(async (document) => {
 		const now = Date.now();

@@ -27,6 +27,10 @@
       {
         "command": "code-reviewer.config",
         "title": "Configurar Code Reviewer"
+      },
+      {
+        "command": "code-reviewer.clearAuth",
+        "title": "Limpiar Sesión de Autenticación"
       }
     ]
   },
