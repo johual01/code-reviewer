@@ -7,6 +7,29 @@ const FormData = require('form-data');
 // Configuración del servidor
 const SERVER_URL = process.env.HOST || 'http://localhost:3000/api';
 
+// Lenguajes soportados por la API
+const SUPPORTED_LANGUAGES = [
+    'javascript', 'typescript', 'jsx', 'tsx', 
+    'python', 'java', 'cpp', 'c', 'csharp', 'php', 'ruby'
+];
+
+// Mapeo de extensiones de archivo a lenguajes
+const EXTENSION_TO_LANGUAGE = {
+    'js': 'javascript',
+    'ts': 'typescript',
+    'jsx': 'jsx',
+    'tsx': 'tsx',
+    'py': 'python',
+    'java': 'java',
+    'cpp': 'cpp',
+    'cc': 'cpp',
+    'cxx': 'cpp',
+    'c': 'c',
+    'cs': 'csharp',
+    'php': 'php',
+    'rb': 'ruby'
+};
+
 const authentication = {
     token: null,
     refreshToken: null,
@@ -14,6 +37,39 @@ const authentication = {
     projectId: null,
     rulesetVersion: null,
     rulesetStatus: null
+}
+
+/**
+ * Detecta el lenguaje de programación basado en la extensión del archivo
+ * @param {string} filePath - Ruta del archivo
+ * @returns {string} - Lenguaje detectado
+ */
+function detectLanguageFromFile(filePath) {
+    const ext = path.extname(filePath).slice(1).toLowerCase(); // Remover el punto y convertir a lowercase
+    const language = EXTENSION_TO_LANGUAGE[ext];
+    
+    if (!language) {
+        throw new Error(`Extensión de archivo no soportada: .${ext}. Extensiones válidas: ${Object.keys(EXTENSION_TO_LANGUAGE).join(', ')}`);
+    }
+    
+    return language;
+}
+
+/**
+ * Valida que el lenguaje sea soportado por la API
+ * @param {string} language - Lenguaje a validar
+ * @throws {Error} - Si el lenguaje no es válido
+ */
+function validateLanguage(language) {
+    if (!language) {
+        throw new Error('El parámetro language es obligatorio');
+    }
+    
+    if (!SUPPORTED_LANGUAGES.includes(language)) {
+        throw new Error(`Lenguaje no soportado: ${language}. Lenguajes válidos: ${SUPPORTED_LANGUAGES.join(', ')}`);
+    }
+    
+    return true;
 }
 
 async function obtainFile(filePath) {
@@ -30,23 +86,30 @@ async function obtainFile(filePath) {
 }
 
 async function refreshToken() {
-    if (!authentication.refreshToken) {
-        throw new Error('No refresh token available.');
+    if (!authentication.token) {
+        throw new Error('No token available for refresh.');
     }
 
     try {
         const response = await axios.post(SERVER_URL + '/auth/refresh', {
-            refreshToken: authentication.refreshToken,
+            token: authentication.token,
         }, {
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authentication.token}`,
             },
         });
 
         if (response.data.success) {
             authentication.token = response.data.data.token;
-            authentication.userId = response.data.data.userId;
-            authentication.projectId = response.data.data.projectId;
+            // La respuesta también incluye información actualizada del usuario y proyecto
+            if (response.data.data.user) {
+                authentication.userId = response.data.data.user.id;
+            }
+            if (response.data.data.project) {
+                authentication.projectId = response.data.data.project.id;
+                authentication.rulesetVersion = response.data.data.project.rulesetVersion;
+            }
             console.log('Token renovado exitosamente:', response.data.message);
             return response.data.data;
         } else {
@@ -123,7 +186,9 @@ async function createSession() {
     try {
         const response = await axios.post(SERVER_URL + '/auth/session', {
             githubId: userIdentity.id,
-            githubUsername: userIdentity.label
+            githubUsername: userIdentity.label,
+            rules: null, // Opcional: puede establecerse más tarde
+            sessionId: null // Opcional: se generará automáticamente
         }, {
             headers: {
                 'Content-Type': 'application/json',
@@ -131,13 +196,20 @@ async function createSession() {
         });
 
         if (response.data.success) {
+            // Extraer datos de la nueva estructura de respuesta
             authentication.token = response.data.data.token;
-            authentication.refreshToken = response.data.data.refreshToken;
-            authentication.userId = response.data.data.userId;
-            authentication.projectId = response.data.data.projectId;
-            authentication.rulesetVersion = response.data.data.rulesetVersion;
-            authentication.rulesetStatus = response.data.data.rulesetStatus;
+            authentication.userId = response.data.data.user.id;
+            authentication.projectId = response.data.data.project.id;
+            authentication.rulesetVersion = response.data.data.project.rulesetVersion;
+            
+            // Remover la dependencia de refreshToken ya que el nuevo flujo usa el token principal
+            authentication.refreshToken = null;
+            
             console.log('Sesión creada exitosamente:', response.data.message);
+            console.log('Project ID:', authentication.projectId);
+            console.log('User ID:', authentication.userId);
+            console.log('Ruleset Version:', authentication.rulesetVersion);
+            
             return response.data.data;
         } else {
             throw new Error('Error al crear la sesión');
@@ -203,9 +275,71 @@ async function updateConfiguration(rules, reason = 'update') {
     }
 }
 
-async function analyzeFile(filePath) {
+/**
+ * Obtiene todas las reglas disponibles desde la API
+ * @returns {Promise<Object>} - Reglas disponibles
+ */
+async function getAllRules() {
     if (!authentication.token) {
         throw new Error('No hay token de autenticación disponible. Por favor, reinicie la sesión.');
+    }
+
+    const makeRequest = async () => {
+        return await axios.get(SERVER_URL + '/rules/all', {
+            headers: {
+                'Authorization': `Bearer ${authentication.token}`,
+            },
+        });
+    };
+
+    try {
+        const response = await makeRequest();
+
+        if (response.data.success) {
+            console.log('Reglas obtenidas exitosamente:', response.data.message);
+            return response.data.data;
+        } else {
+            throw new Error('Error al obtener las reglas');
+        }
+    } catch (error) {
+        if (error.response && error.response.status === 401) {
+            console.log('Auth token expired, attempting to handle auth error...');
+            try {
+                const retryResponse = await handleAuthError(makeRequest);
+                
+                if (retryResponse.data.success) {
+                    console.log('Reglas obtenidas exitosamente tras reautenticación:', retryResponse.data.message);
+                    return retryResponse.data.data;
+                } else {
+                    throw new Error('Error al obtener las reglas tras reautenticación');
+                }
+            } catch (authError) {
+                throw new Error(`Error de autenticación: ${authError.message}`);
+            }
+        }
+        console.error('Error getting rules:', error);
+        throw error;
+    }
+}
+
+async function analyzeFile(filePath, options = {}) {
+    if (!authentication.token) {
+        throw new Error('No hay token de autenticación disponible. Por favor, reinicie la sesión.');
+    }
+
+    // Detectar lenguaje del archivo (OBLIGATORIO según nueva API)
+    let language;
+    try {
+        if (options.language) {
+            // Si se proporciona explícitamente, validarlo
+            validateLanguage(options.language);
+            language = options.language;
+        } else {
+            // Auto-detectar basado en la extensión del archivo
+            language = detectLanguageFromFile(filePath);
+        }
+    } catch (langError) {
+        throw new Error(`Error de lenguaje: ${langError.message}`);
     }
 
     const fileData = await obtainFile(filePath);
@@ -215,10 +349,12 @@ async function analyzeFile(filePath) {
 
     const makeRequest = async () => {
         const form = new FormData();
-        form.append('rulesetVersion', authentication.rulesetVersion);
+        form.append('projectId', authentication.projectId);
         form.append('filePath', filePath);
         form.append('fileContent', fileData, path.basename(filePath));
-        form.append('projectId', authentication.projectId);
+        form.append('language', language); // ⚠️ PARÁMETRO OBLIGATORIO
+        form.append('rulesetVersion', authentication.rulesetVersion || '');
+        form.append('trigger', options.trigger || 'manual');
 
         return await axios.post(SERVER_URL + '/analyze', form, {
             headers: {
@@ -229,10 +365,12 @@ async function analyzeFile(filePath) {
     };
 
     try {
+        console.log(`Analizando archivo: ${path.basename(filePath)} (${language})`);
         const response = await makeRequest();
 
         if (response.data.success) {
             console.log('Archivo analizado exitosamente:', response.data.message);
+            console.log(`Análisis completado - Severidad: ${response.data.data.severity}, Issues: ${response.data.data.issues?.length || 0}`);
             return response.data.data;
         } else {
             throw new Error('Error al analizar el archivo');
@@ -278,10 +416,15 @@ module.exports = {
     createSession,
     refreshToken,
     updateConfiguration,
+    getAllRules,
     analyzeFile,
     convertIssuesToDiagnostics,
     clearAuthentication,
     handleAuthError,
     getAuthenticationStatus,
-    authentication
+    detectLanguageFromFile,
+    validateLanguage,
+    authentication,
+    SUPPORTED_LANGUAGES,
+    EXTENSION_TO_LANGUAGE
 };

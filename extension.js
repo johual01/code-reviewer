@@ -3,7 +3,7 @@ const Diagnostics = require('./diagnostic');
 const { createComments } = require('./comment');
 const path = require('path');
 const fs = require('fs');
-const { createSession, updateConfiguration, analyzeFile, convertIssuesToDiagnostics, clearAuthentication, handleAuthError, getAuthenticationStatus, authentication } = require('./service');
+const { createSession, updateConfiguration, analyzeFile, convertIssuesToDiagnostics, clearAuthentication, handleAuthError, getAuthenticationStatus, authentication, detectLanguageFromFile, SUPPORTED_LANGUAGES, EXTENSION_TO_LANGUAGE } = require('./service');
 
 // Simple YAML parser para las reglas (evita dependencias externas)
 function parseYAMLRules(yamlContent) {
@@ -152,9 +152,14 @@ async function activate(context) {
 			return;
 		}
 		const fileName = editor.document.fileName;
-		const ext = fileName.split('.').pop();
-		if (ext !== 'js' && ext !== 'ts') {
-			vscode.window.showInformationMessage('Solo se pueden revisar archivos JavaScript o TypeScript.');
+		
+		// Verificar si el archivo es compatible usando la nueva detección de lenguaje
+		try {
+			const language = detectLanguageFromFile(fileName);
+			console.log(`Archivo detectado como: ${language}`);
+		} catch (langError) {
+			const supportedExts = Object.keys(EXTENSION_TO_LANGUAGE).map(ext => `.${ext}`).join(', ');
+			vscode.window.showInformationMessage(`Este tipo de archivo no es compatible. Extensiones soportadas: ${supportedExts}`);
 			return;
 		}
 
@@ -224,7 +229,7 @@ async function activate(context) {
 					let analysisResult = {};
 					
 					// Ejecutar análisis en paralelo
-					const analysisPromise = analyzeFile(fileName).then((result) => {
+					const analysisPromise = analyzeFile(fileName, { trigger: 'manual' }).then((result) => {
 						analysisResult = result;
 						console.log('Analysis result:', analysisResult);
 						
@@ -349,21 +354,28 @@ async function activate(context) {
 			return;
 		}
 
-		if ((ext === 'js' || ext === 'ts')) {
-			if (now < ignoreUntil || pendingPrompt) {
-				return;
-			}
-			pendingPrompt = true;
-			const result = await vscode.window.showInformationMessage(
-				'¿Quieres que le realicemos una revisión al código que acabas de guardar?',
-				'Sí', 'No'
-			);
-			pendingPrompt = false;
-			if (result === 'Sí') {
-				vscode.commands.executeCommand('code-reviewer.review');
-			} else if (result === 'No') {
-				ignoreUntil = Date.now() + 5 * 60 * 1000;
-			}
+		// Verificar si el archivo es soportado usando la nueva detección de lenguaje
+		try {
+			detectLanguageFromFile(document.fileName);
+			// Si llegamos aquí, el archivo es soportado
+		} catch (langError) {
+			// Archivo no soportado, ignorar
+			return;
+		}
+
+		if (now < ignoreUntil || pendingPrompt) {
+			return;
+		}
+		pendingPrompt = true;
+		const result = await vscode.window.showInformationMessage(
+			'¿Quieres que le realicemos una revisión al código que acabas de guardar?',
+			'Sí', 'No'
+		);
+		pendingPrompt = false;
+		if (result === 'Sí') {
+			vscode.commands.executeCommand('code-reviewer.review');
+		} else if (result === 'No') {
+			ignoreUntil = Date.now() + 5 * 60 * 1000;
 		}
 	});
 	context.subscriptions.push(saveListener);

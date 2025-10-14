@@ -12,7 +12,7 @@ class Diagnostics {
 
     async generateDiagnostics(file) {
         try {
-            const analysisResult = await analyzeFile(file);
+            const analysisResult = await analyzeFile(file, { trigger: 'auto' });
             const diagnostics = analysisResult.issues || [];
             
             this.currentDiagnostics = diagnostics.map(issue => {
