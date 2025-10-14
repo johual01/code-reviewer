@@ -58,9 +58,10 @@ async function activate(context) {
 	// Ejecutar config al iniciar la extensión (de forma no bloqueante)
 	vscode.commands.executeCommand('code-reviewer.config', { reason: 'startup' })
 		.then(() => {
-			console.log('Configuración inicial completada');
+			console.log('🚀 Code Reviewer iniciado correctamente. La extensión está lista para analizar código en múltiples lenguajes.');
+			vscode.window.showInformationMessage('Code Reviewer listo para revisar tu código 🎯', { modal: false });
 		}, err => {
-			console.log('Error inicial en configuración (no crítico):', err.message);
+			console.log('⚠️ Error inicial en configuración (no crítico):', err.message);
 		});
 
 	const config = vscode.commands.registerCommand('code-reviewer.config', async (args = {}) => {
@@ -138,7 +139,18 @@ async function activate(context) {
 						vscode.window.showErrorMessage('Error de autenticación en configuración. Por favor, intente nuevamente.');
 					}
 				} else {
-					vscode.window.showErrorMessage(`Error en configuración: ${err.message}`);
+					// Extraer mensaje específico del servidor
+					let errMsg = 'Error desconocido';
+					if (err?.response?.data?.message) {
+						errMsg = err.response.data.message;
+					} else if (err?.response?.data?.err?.message) {
+						errMsg = err.response.data.err.message;
+					} else if (err?.message) {
+						errMsg = err.message;
+					}
+					
+					console.log('Mensaje de error específico:', errMsg);
+					vscode.window.showErrorMessage(`Error en configuración: ${errMsg}`);
 				}
 			}
 		}
@@ -302,7 +314,18 @@ async function activate(context) {
 					vscode.window.showErrorMessage('Error de autenticación. Por favor, intente nuevamente.');
 				}
 			} else {
-				vscode.window.showErrorMessage(`Error durante el análisis: ${error.message}`);
+				// Extraer mensaje específico del servidor
+				let errMsg = 'Error desconocido';
+				if (error?.response?.data?.message) {
+					errMsg = error.response.data.message;
+				} else if (error?.response?.data?.err?.message) {
+					errMsg = error.response.data.err.message;
+				} else if (error?.message) {
+					errMsg = error.message;
+				}
+				
+				console.log('Mensaje de error específico durante análisis:', errMsg);
+				vscode.window.showErrorMessage(`Error durante el análisis: ${errMsg}`);
 			}
 		}
 	});

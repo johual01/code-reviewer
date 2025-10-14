@@ -113,6 +113,7 @@ async function refreshToken() {
             console.log('Token renovado exitosamente:', response.data.message);
             return response.data.data;
         } else {
+            console.error('Error refreshing token:', response.data);
             // Verificar si el mensaje indica que el token es muy viejo
             const errorMessage = response.data.message || '';
             if (errorMessage.includes('Token too old to refresh')) {
@@ -122,6 +123,7 @@ async function refreshToken() {
         }
     } catch (error) {
         // Si es un error de respuesta del servidor
+        console.error('Caught error in refreshToken:', error);
         if (error.response && error.response.data && error.response.data.message) {
             const errorMessage = error.response.data.message;
             if (errorMessage.includes('Token too old to refresh') || errorMessage.includes('please login again')) {
@@ -212,6 +214,7 @@ async function createSession() {
             
             return response.data.data;
         } else {
+            console.error('Error creating session:', response.data);
             throw new Error('Error al crear la sesión');
         }
     } catch (error) {
@@ -252,6 +255,7 @@ async function updateConfiguration(rules, reason = 'update') {
             throw new Error('Error al actualizar configuración');
         }
     } catch (error) {
+        console.error('Caught error in updateConfiguration:', error);
         if (error.response && error.response.status === 401) {
             console.log('Auth token expired, attempting to handle auth error...');
             try {
@@ -373,9 +377,11 @@ async function analyzeFile(filePath, options = {}) {
             console.log(`Análisis completado - Severidad: ${response.data.data.severity}, Issues: ${response.data.data.issues?.length || 0}`);
             return response.data.data;
         } else {
+            console.error('Error al analizar el archivo:', response.data);
             throw new Error('Error al analizar el archivo');
         }
     } catch (error) {
+        console.error('Error analyzing file:', error);
         if (error.response && error.response.status === 401) {
             console.log('Auth token expired, attempting to handle auth error...');
             try {
