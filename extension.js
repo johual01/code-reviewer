@@ -448,7 +448,9 @@ function generateAnalysisHTML(analysisResult) {
 	// Convertir markdown a HTML básico si está disponible
 	let markdownContent = '';
 	if (analysisResult.fullSuggestionMarkdown) {
-		markdownContent = analysisResult.fullSuggestionMarkdown
+		// Convertir de base64 a string si es necesario
+		const decodedMarkdown = Buffer.from(analysisResult.fullSuggestionMarkdown, 'base64').toString('utf8');
+		markdownContent = decodedMarkdown
 			// Primero procesar bloques de código (``` o `javascript)
 			.replace(/```[\s\S]*?```/g, (match) => {
 				// Extraer el contenido del bloque de código
