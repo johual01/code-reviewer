@@ -418,6 +418,39 @@ function convertIssuesToDiagnostics(issues) {
     }));
 }
 
+/**
+ * Genera sugerencias detalladas para un análisis específico
+ * @param {string} analysisId - ID del análisis
+ * @returns {Promise<Object>} - Sugerencias detalladas
+ */
+async function generateDetailedSuggestions(analysisId) {
+    try {
+        const response = await axios.post(`${SERVER_URL}/analysis/${analysisId}/detailed-suggestion`, {}, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authentication.token}`,
+            },
+        });
+
+        if (response.data.success) {
+            return response.data.data;
+        } else {
+            throw new Error(response.data.message || 'Error generando sugerencias detalladas');
+        }
+    } catch (error) {
+        if (error.response && error.response.status === 401) {
+            console.log('Token expirado, intentando renovar...');
+            throw new Error('Error de autenticación');
+        } else if (error.response && error.response.status === 400) {
+            throw new Error('Código fuente no disponible para este análisis');
+        } else if (error.response && error.response.data && error.response.data.message) {
+            throw new Error(error.response.data.message);
+        }
+        console.error('Error generating detailed suggestions:', error);
+        throw error;
+    }
+}
+
 module.exports = {
     createSession,
     refreshToken,
@@ -430,6 +463,7 @@ module.exports = {
     getAuthenticationStatus,
     detectLanguageFromFile,
     validateLanguage,
+    generateDetailedSuggestions,
     authentication,
     SUPPORTED_LANGUAGES,
     EXTENSION_TO_LANGUAGE
