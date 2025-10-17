@@ -3,6 +3,7 @@ const Diagnostics = require('./diagnostic');
 const { createComments } = require('./comment');
 const path = require('path');
 const fs = require('fs');
+const showdown = require('showdown');
 const { 
 	createSession, 
 	updateConfiguration,
@@ -49,6 +50,13 @@ function parseYAMLRules(yamlContent) {
 }
 
 const diagnosticsInstance = new Diagnostics();
+
+// Panel compartido para análisis
+let sharedAnalysisPanel = null;
+
+// Estado de peticiones activas
+let isAnalysisInProgress = false;
+let isDetailedSuggestionsInProgress = false;
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -168,6 +176,12 @@ async function activate(context) {
 	context.subscriptions.push(config);
 
 	const disposable = vscode.commands.registerCommand('code-reviewer.review', async () => {
+		// Verificar si ya hay un análisis en progreso
+		if (isAnalysisInProgress) {
+			vscode.window.showWarningMessage('⏳ Ya hay un análisis en progreso. Por favor, espere a que termine antes de iniciar otro.');
+			return;
+		}
+
 		const editor = vscode.window.activeTextEditor;
 		if (!editor) {
 			vscode.window.showInformationMessage('No se encontró el editor para el archivo guardado.');
@@ -237,6 +251,9 @@ async function activate(context) {
 		}
 
 		try {
+			// Marcar que el análisis está en progreso
+			isAnalysisInProgress = true;
+			
 			// Mostrar barra de progreso durante el análisis
 			await vscode.window.withProgress(
 				{
@@ -349,6 +366,9 @@ async function activate(context) {
 				console.log('Mensaje de error específico durante análisis:', errMsg);
 				vscode.window.showErrorMessage(`Error durante el análisis: ${errMsg}`);
 			}
+		} finally {
+			// Siempre liberar el bloqueo al finalizar
+			isAnalysisInProgress = false;
 		}
 	});
 	context.subscriptions.push(disposable);
@@ -391,6 +411,12 @@ async function activate(context) {
 
 	// Comando para generar sugerencias detalladas
 	const generateDetailedSuggestionsCmd = vscode.commands.registerCommand('code-reviewer.generateDetailedSuggestions', async () => {
+		// Verificar si ya hay sugerencias detalladas en progreso
+		if (isDetailedSuggestionsInProgress) {
+			vscode.window.showWarningMessage('⏳ Ya se está generando un informe detallado. Por favor, espere a que termine antes de solicitar otro.');
+			return;
+		}
+
 		const analysisId = await vscode.window.showInputBox({
 			prompt: 'Ingrese el ID del análisis para generar sugerencias detalladas',
 			placeHolder: 'analysis_id_here'
@@ -443,12 +469,20 @@ async function activate(context) {
  * Maneja la generación de sugerencias detalladas
  */
 async function handleGenerateDetailedSuggestions(context, analysisId) {
+	// Verificar si ya hay sugerencias detalladas en progreso
+	if (isDetailedSuggestionsInProgress) {
+		vscode.window.showWarningMessage('⏳ Ya se está generando un informe detallado. Por favor, espere a que termine antes de solicitar otro.');
+		return;
+	}
+
 	if (!analysisId) {
 		vscode.window.showErrorMessage('ID de análisis no disponible');
 		return;
 	}
 
 	try {
+		// Marcar que las sugerencias detalladas están en progreso
+		isDetailedSuggestionsInProgress = true;
 		// Mostrar progreso
 		await vscode.window.withProgress({
 			location: vscode.ProgressLocation.Notification,
@@ -524,11 +558,14 @@ async function handleGenerateDetailedSuggestions(context, analysisId) {
 	} catch (error) {
 		console.error('Error generating detailed suggestions:', error);
 		vscode.window.showErrorMessage(`Error generando sugerencias detalladas: ${error.message}`);
+	} finally {
+		// Siempre liberar el bloqueo al finalizar
+		isDetailedSuggestionsInProgress = false;
 	}
 }
 
 /**
- * Muestra las sugerencias detalladas usando el preview de Markdown de VS Code
+ * Muestra las sugerencias detalladas usando Showdown y un panel compartido
  */
 async function showDetailedSuggestionsPanel(suggestions) {
 	try {
@@ -546,43 +583,20 @@ async function showDetailedSuggestionsPanel(suggestions) {
 			}
 		}
 
-		// Agregar metadatos al inicio del documento
-		const metadata = `# 📊 Informe Detallado de Análisis
+		// Crear o reutilizar el panel compartido
+		if (!sharedAnalysisPanel || sharedAnalysisPanel.panel.disposed) {
+			sharedAnalysisPanel = createSharedAnalysisPanel();
+		}
 
-**Estado:** ${suggestions.cached ? '🟢 Desde Caché' : '🆕 Recién Generado'}  
-**Generado:** ${new Date(suggestions.generatedAt).toLocaleString()}  
-**Tiempo:** ${suggestions.timings.latency}ms  
-
----
-
-`;
-
-		const fullContent = metadata + markdownContent;
-
-		// Crear un archivo temporal de markdown
-		const tempDir = require('os').tmpdir();
-		const tempFilePath = path.join(tempDir, `code-reviewer-analysis-${Date.now()}.md`);
+		// Actualizar el contenido del panel
+		const htmlContent = generateMarkdownWebviewHTML(markdownContent, suggestions, 'detailed');
+		sharedAnalysisPanel.panel.webview.html = htmlContent;
 		
-		// Escribir el contenido al archivo temporal
-		fs.writeFileSync(tempFilePath, fullContent, 'utf8');
-
-		// Abrir el archivo en VS Code
-		const document = await vscode.workspace.openTextDocument(tempFilePath);
-		await vscode.window.showTextDocument(document, vscode.ViewColumn.Beside);
-
-		// Abrir el preview de Markdown
-		await vscode.commands.executeCommand('markdown.showPreviewToSide');
-
-		// Opcional: Limpiar el archivo temporal después de un tiempo
-		setTimeout(() => {
-			try {
-				if (fs.existsSync(tempFilePath)) {
-					fs.unlinkSync(tempFilePath);
-				}
-			} catch (error) {
-				console.log('No se pudo limpiar el archivo temporal:', error.message);
-			}
-		}, 60000); // Limpiar después de 1 minuto
+		// Cambiar el título para indicar que es un informe detallado
+		sharedAnalysisPanel.panel.title = '📊 Informe Detallado - Code Reviewer';
+		
+		// Revelar el panel
+		sharedAnalysisPanel.panel.reveal(vscode.ViewColumn.Beside);
 
 	} catch (error) {
 		console.error('Error mostrando sugerencias detalladas:', error);
@@ -590,44 +604,296 @@ async function showDetailedSuggestionsPanel(suggestions) {
 	}
 }
 
-function showAnalysisPanel(context, analysisResult) {
-	// Crear el panel webview
+/**
+ * Crea el panel compartido para análisis
+ */
+function createSharedAnalysisPanel() {
 	const panel = vscode.window.createWebviewPanel(
-		'codeReviewerAnalysis',
-		'Code Reviewer - Análisis Completo',
+		'codeReviewerSharedAnalysis',
+		'📊 Code Reviewer - Análisis',
 		vscode.ViewColumn.Beside,
 		{
 			enableScripts: true,
-			retainContextWhenHidden: true
+			retainContextWhenHidden: true,
+			localResourceRoots: []
 		}
 	);
 
+	// Limpiar la referencia cuando se cierre el panel
+	panel.onDidDispose(() => {
+		sharedAnalysisPanel = null;
+	});
+
+	return { panel };
+}
+
+/**
+ * Genera HTML optimizado para webview usando Showdown para renderizado de Markdown
+ */
+function generateMarkdownWebviewHTML(markdownContent, suggestions, type = 'summary') {
+	// Configurar Showdown con opciones optimizadas
+	const converter = new showdown.Converter({
+		tables: true,
+		strikethrough: true,
+		tasklists: true,
+		simpleLineBreaks: true,
+		openLinksInNewWindow: true,
+		backslashEscapesHTMLTags: true,
+		ghCodeBlocks: true,
+		ghMentions: false,
+		extensions: []
+	});
+
+	// Convertir Markdown a HTML usando Showdown
+	const htmlContent = converter.makeHtml(markdownContent);
+
+	// Título y contenido según el tipo
+	const isDetailed = type === 'detailed';
+	const title = isDetailed ? '📊 Informe Detallado de Análisis' : '📊 Análisis de Código';
+	
+	return `
+		<!DOCTYPE html>
+		<html lang="es">
+		<head>
+			<meta charset="UTF-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			<title>${title}</title>
+			<style>
+				body {
+					font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+					line-height: 1.6;
+					margin: 0;
+					padding: 20px;
+					background-color: var(--vscode-editor-background);
+					color: var(--vscode-editor-foreground);
+					max-width: 1200px;
+					margin: 0 auto;
+				}
+				
+				.header {
+					border-bottom: 2px solid var(--vscode-panel-border);
+					padding: 20px;
+					margin-bottom: 30px;
+					background: var(--vscode-editor-inactiveSelectionBackground);
+					border-radius: 8px;
+				}
+				
+				.metadata {
+					display: flex;
+					gap: 15px;
+					flex-wrap: wrap;
+					margin: 15px 0;
+					font-size: 0.9em;
+				}
+				
+				.metadata-item {
+					background: var(--vscode-badge-background);
+					color: var(--vscode-badge-foreground);
+					padding: 6px 12px;
+					border-radius: 15px;
+					font-weight: 500;
+				}
+				
+				.cached { background: #28a745 !important; color: white !important; }
+				.fresh { background: #007acc !important; color: white !important; }
+				
+				h1 {
+					color: var(--vscode-textLink-foreground);
+					margin-top: 0;
+					font-size: 2em;
+					border-bottom: none;
+				}
+				
+				h2 {
+					color: var(--vscode-textLink-foreground);
+					border-bottom: 1px solid var(--vscode-panel-border);
+					padding-bottom: 8px;
+					margin-top: 30px;
+				}
+				
+				h3 {
+					color: var(--vscode-textLink-foreground);
+					margin-top: 25px;
+				}
+				
+				/* Mejorar el styling de código generado por Showdown */
+				pre {
+					background: var(--vscode-textCodeBlock-background) !important;
+					border: 1px solid var(--vscode-panel-border) !important;
+					border-radius: 6px;
+					padding: 16px;
+					overflow-x: auto;
+					margin: 16px 0;
+					font-family: 'Courier New', 'Monaco', 'Menlo', monospace;
+					font-size: 0.9em;
+				}
+				
+				code {
+					background: var(--vscode-textCodeBlock-background) !important;
+					border: 1px solid var(--vscode-panel-border);
+					padding: 2px 6px;
+					border-radius: 3px;
+					font-family: 'Courier New', 'Monaco', 'Menlo', monospace;
+					font-size: 0.9em;
+				}
+				
+				/* Código dentro de pre no necesita border */
+				pre code {
+					background: transparent !important;
+					border: none !important;
+					padding: 0;
+				}
+				
+				/* Tablas generadas por Showdown */
+				table {
+					border-collapse: collapse;
+					width: 100%;
+					margin: 16px 0;
+				}
+				
+				th, td {
+					border: 1px solid var(--vscode-panel-border);
+					padding: 8px 12px;
+					text-align: left;
+				}
+				
+				th {
+					background: var(--vscode-editor-inactiveSelectionBackground);
+					font-weight: 600;
+				}
+				
+				ul, ol {
+					padding-left: 20px;
+				}
+				
+				li {
+					margin: 5px 0;
+				}
+				
+				hr {
+					border: none;
+					border-top: 1px solid var(--vscode-panel-border);
+					margin: 30px 0;
+				}
+				
+				a {
+					color: var(--vscode-textLink-foreground);
+					text-decoration: none;
+				}
+				
+				a:hover {
+					text-decoration: underline;
+				}
+				
+				p {
+					margin: 12px 0;
+				}
+				
+				strong {
+					font-weight: 600;
+				}
+				
+				blockquote {
+					border-left: 4px solid var(--vscode-textLink-foreground);
+					margin: 16px 0;
+					padding: 0 16px;
+					background: var(--vscode-editor-inactiveSelectionBackground);
+					border-radius: 0 4px 4px 0;
+				}
+				
+				.content {
+					animation: fadeIn 0.3s ease-in;
+				}
+				
+				@keyframes fadeIn {
+					from { opacity: 0; transform: translateY(10px); }
+					to { opacity: 1; transform: translateY(0); }
+				}
+				
+				/* Scrollbar personalizado */
+				::-webkit-scrollbar {
+					width: 8px;
+				}
+				
+				::-webkit-scrollbar-track {
+					background: var(--vscode-scrollbarSlider-background);
+				}
+				
+				::-webkit-scrollbar-thumb {
+					background: var(--vscode-scrollbarSlider-activeBackground);
+					border-radius: 4px;
+				}
+			</style>
+		</head>
+		<body>
+			${isDetailed && suggestions ? `
+			<div class="header">
+				<h1>${title}</h1>
+				<div class="metadata">
+					<span class="metadata-item ${suggestions.cached ? 'cached' : 'fresh'}">
+						${suggestions.cached ? '🟢 Desde Caché' : '🆕 Recién Generado'}
+					</span>
+					<span class="metadata-item">
+						🕒 ${new Date(suggestions.generatedAt).toLocaleString()}
+					</span>
+					<span class="metadata-item">
+						⚡ ${suggestions.timings.latency}ms
+					</span>
+					${suggestions.usageCost ? `
+					<span class="metadata-item">
+						💰 $${suggestions.usageCost.usdCost.toFixed(4)}
+					</span>
+					` : ''}
+				</div>
+			</div>
+			` : ''}
+			
+			<div class="content">
+				${htmlContent}
+			</div>
+		</body>
+		</html>
+	`;
+}
+
+function showAnalysisPanel(context, analysisResult) {
+	// Crear o reutilizar el panel compartido
+	if (!sharedAnalysisPanel || sharedAnalysisPanel.panel.disposed) {
+		sharedAnalysisPanel = createSharedAnalysisPanel();
+		
+		// Manejar mensajes del webview solo una vez
+		sharedAnalysisPanel.panel.webview.onDidReceiveMessage(
+			async message => {
+				switch (message.command) {
+					case 'openFile':
+						// Abrir archivo en el editor en la línea específica
+						vscode.workspace.openTextDocument(message.filePath).then(doc => {
+							vscode.window.showTextDocument(doc).then(editor => {
+								const position = new vscode.Position(message.line - 1, 0);
+								editor.selection = new vscode.Selection(position, position);
+								editor.revealRange(new vscode.Range(position, position));
+							});
+						});
+						break;
+					case 'generateDetailedSuggestions':
+						await handleGenerateDetailedSuggestions(context, message.analysisId);
+						break;
+				}
+			},
+			undefined,
+			context.subscriptions
+		);
+	}
+
 	// Generar el contenido HTML del panel
 	const htmlContent = generateAnalysisHTML(analysisResult);
-	panel.webview.html = htmlContent;
-
-	// Manejar mensajes del webview
-	panel.webview.onDidReceiveMessage(
-		async message => {
-			switch (message.command) {
-				case 'openFile':
-					// Abrir archivo en el editor en la línea específica
-					vscode.workspace.openTextDocument(message.filePath).then(doc => {
-						vscode.window.showTextDocument(doc).then(editor => {
-							const position = new vscode.Position(message.line - 1, 0);
-							editor.selection = new vscode.Selection(position, position);
-							editor.revealRange(new vscode.Range(position, position));
-						});
-					});
-					break;
-				case 'generateDetailedSuggestions':
-					await handleGenerateDetailedSuggestions(context, message.analysisId);
-					break;
-			}
-		},
-		undefined,
-		context.subscriptions
-	);
+	sharedAnalysisPanel.panel.webview.html = htmlContent;
+	
+	// Cambiar el título para indicar que es un resumen
+	sharedAnalysisPanel.panel.title = '📊 Resumen de Análisis - Code Reviewer';
+	
+	// Revelar el panel
+	sharedAnalysisPanel.panel.reveal(vscode.ViewColumn.Beside);
 }
 
 function generateAnalysisHTML(analysisResult) {
