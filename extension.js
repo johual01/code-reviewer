@@ -839,11 +839,6 @@ function generateMarkdownWebviewHTML(markdownContent, suggestions, type = 'summa
 					<span class="metadata-item">
 						⚡ ${suggestions.timings.latency}ms
 					</span>
-					${suggestions.usageCost ? `
-					<span class="metadata-item">
-						💰 $${suggestions.usageCost.usdCost.toFixed(4)}
-					</span>
-					` : ''}
 				</div>
 			</div>
 			` : ''}
