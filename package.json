@@ -1,7 +1,7 @@
 {
-  "name": "code-reviewer",
-  "displayName": "Code Reviewer",
-  "description": "Una extensión para revisar código JavaScript y TypeScript.",
+  "name": "code-reviewer-ai-extension",
+  "displayName": "Code Reviewer AI",
+  "description": "Una extensión para revisar código JavaScript y TypeScript utilizando inteligencia artificial.",
   "version": "1.0.0",
   "icon": "icon.png",
   "publisher": "JesusPereira",
