@@ -15,6 +15,11 @@ const {
 	EXTENSION_TO_LANGUAGE,
 	generateDetailedSuggestions,
 } = require('./service');
+const {
+	detectSensitiveData,
+	showSensitiveDataWarning,
+	showDetailedSensitiveDataReport
+} = require('./sensitiveDataDetector');
 
 // Simple YAML parser para las reglas (evita dependencias externas)
 function parseYAMLRules(yamlContent) {
@@ -197,6 +202,37 @@ async function activate(context) {
 			const supportedExts = Object.keys(EXTENSION_TO_LANGUAGE).map(ext => `.${ext}`).join(', ');
 			vscode.window.showInformationMessage(`Este tipo de archivo no es compatible. Extensiones soportadas: ${supportedExts}`);
 			return;
+		}
+
+		// Detectar datos sensibles en el archivo actual (si está habilitado)
+		const enableSensitiveDataDetection = vscode.workspace.getConfiguration('codeReviewer').get('enableSensitiveDataDetection', true);
+		
+		if (enableSensitiveDataDetection) {
+			const fileContent = editor.document.getText();
+			const sensitiveFindings = detectSensitiveData(fileContent);
+			
+			// Filtrar por umbral de severidad configurado
+			const severityThreshold = vscode.workspace.getConfiguration('codeReviewer').get('sensitiveDataSeverityThreshold', 'medium');
+			const severityLevels = { low: 1, medium: 2, high: 3 };
+			const thresholdLevel = severityLevels[severityThreshold] || 2;
+			
+			const filteredFindings = sensitiveFindings.filter(finding => {
+				const findingLevel = severityLevels[finding.severity] || 1;
+				return findingLevel >= thresholdLevel;
+			});
+			
+			if (filteredFindings.length > 0) {
+				console.log(`Detectados ${filteredFindings.length} datos sensibles que cumplen el umbral de ${severityThreshold}`);
+				
+				const shouldContinue = await showSensitiveDataWarning(filteredFindings);
+				if (!shouldContinue) {
+					vscode.window.showInformationMessage('Análisis cancelado por datos sensibles detectados.');
+					return;
+				}
+				
+				// Log de confirmación para auditoria
+				console.log(`Usuario confirmó continuar con el análisis a pesar de ${filteredFindings.length} datos sensibles detectados`);
+			}
 		}
 
 		if (!authentication.token) {
@@ -408,6 +444,43 @@ async function activate(context) {
 		}
 	});
 	context.subscriptions.push(clearAuth);
+
+	// Comando para detectar datos sensibles únicamente
+	const detectSensitiveDataCmd = vscode.commands.registerCommand('code-reviewer.detectSensitiveData', async () => {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			vscode.window.showInformationMessage('No se encontró el editor activo.');
+			return;
+		}
+
+		const fileContent = editor.document.getText();
+		const sensitiveFindings = detectSensitiveData(fileContent);
+		
+		if (sensitiveFindings.length === 0) {
+			vscode.window.showInformationMessage('✅ No se detectaron datos sensibles en el archivo actual.');
+			return;
+		}
+
+		const highRiskCount = sensitiveFindings.filter(f => f.severity === 'high').length;
+		const mediumRiskCount = sensitiveFindings.filter(f => f.severity === 'medium').length;
+		const lowRiskCount = sensitiveFindings.filter(f => f.severity === 'low').length;
+		
+		let summaryMessage = `🔒 Detectados ${sensitiveFindings.length} posibles datos sensibles:\n`;
+		if (highRiskCount > 0) summaryMessage += `🚨 Riesgo Alto: ${highRiskCount}\n`;
+		if (mediumRiskCount > 0) summaryMessage += `⚠️ Riesgo Medio: ${mediumRiskCount}\n`;
+		if (lowRiskCount > 0) summaryMessage += `ℹ️ Riesgo Bajo: ${lowRiskCount}`;
+
+		const result = await vscode.window.showWarningMessage(
+			summaryMessage,
+			'Ver Reporte Detallado',
+			'Cerrar'
+		);
+
+		if (result === 'Ver Reporte Detallado') {
+			await showDetailedSensitiveDataReport(sensitiveFindings);
+		}
+	});
+	context.subscriptions.push(detectSensitiveDataCmd);
 
 	// Comando para generar sugerencias detalladas
 	const generateDetailedSuggestionsCmd = vscode.commands.registerCommand('code-reviewer.generateDetailedSuggestions', async () => {

@@ -41,6 +41,11 @@
         "command": "code-reviewer.generateDetailedSuggestions",
         "title": "Generar Sugerencias Detalladas",
         "icon": "$(book)"
+      },
+      {
+        "command": "code-reviewer.detectSensitiveData",
+        "title": "Detectar Datos Sensibles",
+        "icon": "$(shield)"
       }
     ],
     "configuration": {
@@ -50,6 +55,17 @@
           "type": "boolean",
           "default": false,
           "description": "Generar automáticamente sugerencias detalladas después del análisis"
+        },
+        "codeReviewer.enableSensitiveDataDetection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Detectar automáticamente datos sensibles antes del análisis"
+        },
+        "codeReviewer.sensitiveDataSeverityThreshold": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "default": "medium",
+          "description": "Nivel mínimo de severidad para mostrar advertencias de datos sensibles"
         }
       }
     }
