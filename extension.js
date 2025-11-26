@@ -359,11 +359,11 @@ async function activate(context) {
 									   `Puntuación de estilo: ${evaluation?.styleScore || 'N/A'}/100. ` +
 									   `Complejidad: ${evaluation?.complexity || 'N/A'}.`;
 						
-						const result = await vscode.window.showInformationMessage(message, 'Ver Resumen Completo');
-						
-						if (result === 'Ver Resumen Completo') {
-							showAnalysisPanel(context, analysisResult);
-						}
+						vscode.window.showInformationMessage(message, 'Ver Resumen Completo').then((result) => {
+							if (result === 'Ver Resumen Completo') {
+								showAnalysisPanel(context, analysisResult);
+							}
+						});
 					}
 
 					// Verificar si debe generar sugerencias detalladas automáticamente

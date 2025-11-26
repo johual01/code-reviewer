@@ -115,10 +115,10 @@ async function showSensitiveDataWarning(sensitiveFindings) {
 	const mediumRiskFindings = sensitiveFindings.filter(f => f.severity === 'medium');
 	const lowRiskFindings = sensitiveFindings.filter(f => f.severity === 'low');
 	
-	let warningMessage = '🔒 **DATOS SENSIBLES DETECTADOS**\n\n';
+	let warningMessage = '🔒 DATOS SENSIBLES DETECTADOS\n\n';
 	
 	if (highRiskFindings.length > 0) {
-		warningMessage += `🚨 **RIESGO ALTO** (${highRiskFindings.length} encontrados):\n`;
+		warningMessage += `🚨 RIESGO ALTO (${highRiskFindings.length} encontrados):\n`;
 		highRiskFindings.slice(0, 3).forEach(finding => {
 			const categoryName = getCategoryDisplayName(finding.category);
 			warningMessage += `• Línea ${finding.line}: ${categoryName}\n`;
@@ -130,7 +130,7 @@ async function showSensitiveDataWarning(sensitiveFindings) {
 	}
 	
 	if (mediumRiskFindings.length > 0) {
-		warningMessage += `⚠️ **RIESGO MEDIO** (${mediumRiskFindings.length} encontrados):\n`;
+		warningMessage += `⚠️ RIESGO MEDIO (${mediumRiskFindings.length} encontrados):\n`;
 		mediumRiskFindings.slice(0, 2).forEach(finding => {
 			const categoryName = getCategoryDisplayName(finding.category);
 			warningMessage += `• Línea ${finding.line}: ${categoryName}\n`;
@@ -142,7 +142,7 @@ async function showSensitiveDataWarning(sensitiveFindings) {
 	}
 	
 	if (lowRiskFindings.length > 0) {
-		warningMessage += `ℹ️ **RIESGO BAJO** (${lowRiskFindings.length} encontrados)\n\n`;
+		warningMessage += `ℹ️ RIESGO BAJO (${lowRiskFindings.length} encontrados)\n\n`;
 	}
 	
 	warningMessage += '¿Desea continuar con el análisis? Los datos sensibles podrían ser enviados al servicio de revisión.';
@@ -157,8 +157,6 @@ async function showSensitiveDataWarning(sensitiveFindings) {
 	
 	if (result === 'Ver Detalles') {
 		await showDetailedSensitiveDataReport(sensitiveFindings);
-		// Después de mostrar detalles, preguntar de nuevo
-		return await showSensitiveDataWarning(sensitiveFindings);
 	}
 	
 	return result === 'Continuar Análisis';
